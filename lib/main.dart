@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -17,16 +16,34 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Firebase Auth Demo',
-      home: MyHomePage(title: 'Firebase Auth Demo'),
+      home: AuthenticationWrapper(),
+    );
+  }
+}
+
+class AuthenticationWrapper extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    // Checking if the user is signed in
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        // If user is logged in, navigate to ProfileScreen
+        if (snapshot.connectionState == ConnectionState.active) {
+          if (snapshot.hasData) {
+            return ProfileScreen();
+          }
+          // If not logged in, show the login screen
+          return MyHomePage();
+        }
+        // While loading, show a loading indicator
+        return Center(child: CircularProgressIndicator());
+      },
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  final String title;
-
-  MyHomePage({Key? key, required this.title}) : super(key: key);
-
   @override
   _MyHomePageState createState() => _MyHomePageState();
 }
@@ -34,31 +51,42 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  void _signOut() async {
-    await _auth.signOut();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Signed out successfully')),
-    );
+  // User Registration
+  void _register(String email, String password) async {
+    try {
+      await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      print('Registration failed: $e');
+    }
+  }
+
+  // User Sign-In
+  void _signIn(String email, String password) async {
+    try {
+      await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      print('Sign-in failed: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-        actions: <Widget>[
-          ElevatedButton(
-            onPressed: _signOut,
-            child: Text('Sign Out'),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: Text('Firebase Auth Demo')),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            RegisterEmailSection(auth: _auth),
-            EmailPasswordForm(auth: _auth),
+            EmailPasswordForm(
+              onRegister: _register,
+              onSignIn: _signIn,
+            ),
           ],
         ),
       ),
@@ -66,97 +94,11 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 }
 
-class RegisterEmailSection extends StatefulWidget {
-  final FirebaseAuth auth;
-
-  RegisterEmailSection({Key? key, required this.auth}) : super(key: key);
-
-  @override
-  _RegisterEmailSectionState createState() => _RegisterEmailSectionState();
-}
-
-class _RegisterEmailSectionState extends State<RegisterEmailSection> {
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-
-  bool _success = false;
-  bool _initialState = true;
-  String? _userEmail;
-
-  void _register() async {
-    try {
-      await widget.auth.createUserWithEmailAndPassword(
-        email: _emailController.text,
-        password: _passwordController.text,
-      );
-      setState(() {
-        _success = true;
-        _userEmail = _emailController.text;
-        _initialState = false;
-      });
-    } catch (e) {
-      setState(() {
-        _success = false;
-        _initialState = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Form(
-      key: _formKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          TextFormField(
-            controller: _emailController,
-            decoration: InputDecoration(labelText: 'Email'),
-            validator: (value) =>
-                (value?.isEmpty ?? true) ? 'Please enter some text' : null,
-          ),
-          TextFormField(
-            controller: _passwordController,
-            decoration: InputDecoration(labelText: 'Password'),
-            validator: (value) =>
-                (value?.isEmpty ?? true) ? 'Please enter some text' : null,
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 16.0),
-            alignment: Alignment.center,
-            child: ElevatedButton(
-              onPressed: () {
-                if (_formKey.currentState!.validate()) {
-                  _register();
-                }
-              },
-              child: Text('Submit'),
-            ),
-          ),
-          Container(
-            alignment: Alignment.center,
-            child: Text(
-              _initialState
-                  ? 'Please Register'
-                  : _success
-                      ? 'Successfully registered $_userEmail'
-                      : 'Registration failed',
-              style: TextStyle(
-                color: _success ? Colors.green : Colors.red,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class EmailPasswordForm extends StatefulWidget {
-  final FirebaseAuth auth;
+  final Function(String email, String password) onRegister;
+  final Function(String email, String password) onSignIn;
 
-  EmailPasswordForm({Key? key, required this.auth}) : super(key: key);
+  EmailPasswordForm({required this.onRegister, required this.onSignIn});
 
   @override
   _EmailPasswordFormState createState() => _EmailPasswordFormState();
@@ -167,26 +109,18 @@ class _EmailPasswordFormState extends State<EmailPasswordForm> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-  bool _success = false;
-  bool _initialState = true;
-  String _userEmail = '';
+  bool _isLogin = true;
 
-  void _signInWithEmailAndPassword() async {
-    try {
-      await widget.auth.signInWithEmailAndPassword(
-        email: _emailController.text,
-        password: _passwordController.text,
-      );
-      setState(() {
-        _success = true;
-        _userEmail = _emailController.text;
-        _initialState = false;
-      });
-    } catch (e) {
-      setState(() {
-        _success = false;
-        _initialState = false;
-      });
+  void _submit() {
+    final email = _emailController.text;
+    final password = _passwordController.text;
+
+    if (_formKey.currentState?.validate() ?? false) {
+      if (_isLogin) {
+        widget.onSignIn(email, password);
+      } else {
+        widget.onRegister(email, password);
+      }
     }
   }
 
@@ -195,52 +129,89 @@ class _EmailPasswordFormState extends State<EmailPasswordForm> {
     return Form(
       key: _formKey,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Container(
-            child: Text('Test sign in with email and password'),
-            padding: const EdgeInsets.all(16),
-            alignment: Alignment.center,
-          ),
           TextFormField(
             controller: _emailController,
             decoration: InputDecoration(labelText: 'Email'),
-            validator: (value) =>
-                (value?.isEmpty ?? true) ? 'Please enter some text' : null,
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please enter an email';
+              }
+              return null;
+            },
           ),
           TextFormField(
             controller: _passwordController,
             decoration: InputDecoration(labelText: 'Password'),
-            validator: (value) =>
-                (value?.isEmpty ?? true) ? 'Please enter some text' : null,
+            obscureText: true,
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please enter a password';
+              }
+              return null;
+            },
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 16.0),
-            alignment: Alignment.center,
-            child: ElevatedButton(
-              onPressed: () {
-                if (_formKey.currentState!.validate()) {
-                  _signInWithEmailAndPassword();
-                }
-              },
-              child: Text('Submit'),
-            ),
+          ElevatedButton(
+            onPressed: _submit,
+            child: Text(_isLogin ? 'Sign In' : 'Register'),
           ),
-          Container(
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              _initialState
-                  ? 'Please sign in'
-                  : _success
-                      ? 'Successfully signed in $_userEmail'
-                      : 'Sign in failed',
-              style: TextStyle(
-                color: _success ? Colors.green : Colors.red,
-              ),
-            ),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _isLogin = !_isLogin;
+              });
+            },
+            child: Text(_isLogin ? 'Don\'t have an account? Register' : 'Already have an account? Sign In'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class ProfileScreen extends StatelessWidget {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  // Log out functionality
+  void _signOut(BuildContext context) async {
+    await _auth.signOut();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Logged out successfully')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = _auth.currentUser;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Profile'),
+        actions: <Widget>[
+          IconButton(
+            icon: Icon(Icons.exit_to_app),
+            onPressed: () => _signOut(context),
+          ),
+        ],
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            user != null
+                ? Column(
+                    children: <Widget>[
+                      Text('Email: ${user.email}'),
+                      ElevatedButton(
+                        onPressed: () {
+                          // Add your password reset functionality here if needed
+                        },
+                        child: Text('Change Password'),
+                      ),
+                    ],
+                  )
+                : Text('No user logged in'),
+          ],
+        ),
       ),
     );
   }
